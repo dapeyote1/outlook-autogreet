@@ -24,9 +24,6 @@
     function autoGreet(event) {
       const item = Office.context.mailbox.item;
 
-      // item.from is available in READ mode (the email being viewed)
-      // This is the correct property when the add-in button is clicked
-      // while reading a message, before or instead of hitting Reply
       item.from.getAsync(function (result) {
         if (result.status === Office.AsyncResultStatus.Failed) {
           event.completed();
@@ -43,19 +40,19 @@
           return;
         }
 
-        // Open a reply and insert the greeting into the compose window
-        Office.context.mailbox.item.displayReplyForm(
-          "Hi " + firstName + ",\n\n"
-        );
+        const greeting = "<p>Hi " + firstName + ",</p><p></p>";
 
-        event.completed();
+        item.displayReplyFormAsync(
+          { htmlBody: greeting },
+          function (asyncResult) {
+            event.completed();
+          }
+        );
       });
     }
 
     Office.actions.associate("autoGreet", autoGreet);
   </script>
 </head>
-<body>
-  <!-- This page runs silently in the background — no visible UI needed -->
-</body>
+<body></body>
 </html>
