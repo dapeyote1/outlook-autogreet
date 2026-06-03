@@ -2,55 +2,80 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Auto Greet Commands</title>
+  <title>Auto Greet</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <script>
-    Office.initialize = function () {};
-
-    function extractFirstName(senderName, senderEmail) {
-      if (senderName && senderName.trim().length > 0) {
-        const parts = senderName.trim().split(/\s+/);
-        const first = parts[0];
-        return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+    // Pull the first name out of a display name, or failing that, an email address.
+    function getFirstName(name, email) {
+      if (name && name.trim().length > 0) {
+        return capitalise(name.trim().split(/\s+/)[0]);
       }
-      if (senderEmail && senderEmail.includes("@")) {
-        const localPart = senderEmail.split("@")[0];
-        const namePart = localPart.split(/[._\-+]/)[0];
-        return namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
+      if (email && email.indexOf("@") !== -1) {
+        return capitalise(email.split("@")[0].split(/[._\-+]/)[0]);
       }
       return null;
     }
 
+    function capitalise(word) {
+      if (!word) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }
+
+    // Runs automatically every time a compose window opens.
     function autoGreet(event) {
-      const item = Office.context.mailbox.item;
+      var item = Office.context.mailbox.item;
 
-      item.from.getAsync(function (result) {
-        if (result.status === Office.AsyncResultStatus.Failed) {
+      // Only act on a Reply / Reply All -- skip brand-new emails and forwards.
+      item.getComposeTypeAsync(function (typeResult) {
+        if (typeResult.status !== Office.AsyncResultStatus.Succeeded ||
+            typeResult.value.composeType !== "reply") {
           event.completed();
           return;
         }
 
-        const sender = result.value;
-        const senderName = sender ? sender.displayName : "";
-        const senderEmail = sender ? sender.emailAddress : "";
-        const firstName = extractFirstName(senderName, senderEmail);
-
-        if (!firstName) {
-          event.completed();
-          return;
-        }
-
-        const greeting = "<p>Hi " + firstName + ",</p><p></p>";
-
-        item.displayReplyFormAsync(
-          { htmlBody: greeting },
-          function (asyncResult) {
-            event.completed();
+        // On a reply, Outlook has already put the ORIGINAL SENDER in the To field.
+        // That is the person we want to greet -- not ourselves.
+        item.to.getAsync(function (toResult) {
+          var firstName = null;
+          if (toResult.status === Office.AsyncResultStatus.Succeeded &&
+              toResult.value && toResult.value.length > 0) {
+            firstName = getFirstName(toResult.value[0].displayName,
+                                     toResult.value[0].emailAddress);
           }
-        );
+
+          if (!firstName) {
+            event.completed();
+            return;
+          }
+
+          var greeting = "<p>Hi " + firstName + ",</p><p><br></p>";
+
+          // Read the existing reply body (quoted thread + signature) and keep it.
+          item.body.getAsync(Office.CoercionType.Html, function (bodyResult) {
+            if (bodyResult.status !== Office.AsyncResultStatus.Succeeded) {
+              event.completed();
+              return;
+            }
+
+            var existing = bodyResult.value || "";
+
+            // Don't add the greeting twice.
+            if (existing.indexOf("Hi " + firstName + ",") !== -1) {
+              event.completed();
+              return;
+            }
+
+            item.body.setAsync(
+              greeting + existing,
+              { coercionType: Office.CoercionType.Html },
+              function () { event.completed(); }
+            );
+          });
+        });
       });
     }
 
+    // Connect the function above to the trigger named in the manifest.
     Office.actions.associate("autoGreet", autoGreet);
   </script>
 </head>
