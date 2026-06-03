@@ -7,75 +7,51 @@
   <script>
     Office.initialize = function () {};
 
-    /**
-     * Extracts the first name from a display name or email address.
-     * e.g. "Jane Smith" -> "Jane"
-     *      "jane.smith@example.com" -> "Jane"
-     */
     function extractFirstName(senderName, senderEmail) {
       if (senderName && senderName.trim().length > 0) {
-        // Use the display name — take the first word
         const parts = senderName.trim().split(/\s+/);
         const first = parts[0];
-        // Capitalise first letter just in case
         return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
       }
-
       if (senderEmail && senderEmail.includes("@")) {
-        // Fall back to email — take the part before @ and before any dot/underscore
         const localPart = senderEmail.split("@")[0];
         const namePart = localPart.split(/[._\-+]/)[0];
         return namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
       }
-
       return null;
     }
 
-    /**
-     * Main function — fired when the user hits Reply or Reply All.
-     * Inserts "Hi [FirstName]," at the top of the compose body.
-     */
     function autoGreet(event) {
       const item = Office.context.mailbox.item;
 
-      // Get the sender details from the original item being replied to
-      // In a compose (reply) context, we read from item.sender
-      const senderName = item.sender ? item.sender.displayName : "";
-      const senderEmail = item.sender ? item.sender.emailAddress : "";
+      // item.from is available in READ mode (the email being viewed)
+      // This is the correct property when the add-in button is clicked
+      // while reading a message, before or instead of hitting Reply
+      item.from.getAsync(function (result) {
+        if (result.status === Office.AsyncResultStatus.Failed) {
+          event.completed();
+          return;
+        }
 
-      const firstName = extractFirstName(senderName, senderEmail);
+        const sender = result.value;
+        const senderName = sender ? sender.displayName : "";
+        const senderEmail = sender ? sender.emailAddress : "";
+        const firstName = extractFirstName(senderName, senderEmail);
 
-      if (!firstName) {
-        // Nothing useful to insert — exit cleanly
+        if (!firstName) {
+          event.completed();
+          return;
+        }
+
+        // Open a reply and insert the greeting into the compose window
+        Office.context.mailbox.item.displayReplyForm(
+          "Hi " + firstName + ",\n\n"
+        );
+
         event.completed();
-        return;
-      }
-
-      const greeting = "Hi " + firstName + ",\n\n";
-
-      // Get the current body and prepend the greeting
-      item.body.getAsync(Office.CoercionType.Text, function (bodyResult) {
-        if (bodyResult.status === Office.AsyncResultStatus.Failed) {
-          event.completed();
-          return;
-        }
-
-        const currentBody = bodyResult.value || "";
-
-        // Avoid double-inserting if the greeting is already there
-        if (currentBody.trimStart().startsWith("Hi " + firstName)) {
-          event.completed();
-          return;
-        }
-
-        // Prepend the greeting to whatever is already in the compose body
-        item.body.prependAsync(greeting, { coercionType: Office.CoercionType.Text }, function () {
-          event.completed();
-        });
       });
     }
 
-    // Register the function so the manifest can reference it
     Office.actions.associate("autoGreet", autoGreet);
   </script>
 </head>
